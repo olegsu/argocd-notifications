@@ -2,7 +2,6 @@ package notifiers
 
 import (
 	"context"
-	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -16,8 +15,8 @@ import (
 )
 
 type SlackNotification struct {
-	Attachments string `json:"attachments,omitempty" yaml:"attachments,omitempty"`
-	Blocks      string `json:"blocks,omitempty" yaml:"blocks,omitempty"`
+	Attachments string `json:"attachments,omitempty"`
+	Blocks      string `json:"blocks,omitempty"`
 }
 
 type SlackOptions struct {
@@ -27,6 +26,7 @@ type SlackOptions struct {
 	SigningSecret      string   `json:"signingSecret"`
 	Channels           []string `json:"channels"`
 	InsecureSkipVerify bool     `json:"insecureSkipVerify"`
+	ApiURL             string   `json:"apiURL"`
 }
 
 type slackNotifier struct {
@@ -40,15 +40,15 @@ func NewSlackNotifier(opts SlackOptions) Notifier {
 }
 
 func (n *slackNotifier) Send(notification Notification, recipient string) error {
-	transport := &http.Transport{
-		TLSClientConfig: &tls.Config{
-			InsecureSkipVerify: n.opts.InsecureSkipVerify,
-		},
+	apiURL := slack.APIURL
+	if n.opts.ApiURL != "" {
+		apiURL = n.opts.ApiURL
 	}
+	transport := httputil.NewTransport(apiURL, n.opts.InsecureSkipVerify)
 	client := &http.Client{
 		Transport: httputil.NewLoggingRoundTripper(transport, log.WithField("notifier", "slack")),
 	}
-	s := slack.New(n.opts.Token, slack.OptionHTTPClient(client))
+	s := slack.New(n.opts.Token, slack.OptionHTTPClient(client), slack.OptionAPIURL(apiURL))
 	msgOptions := []slack.MsgOption{slack.MsgOptionText(notification.Body, false)}
 	if n.opts.Username != "" {
 		msgOptions = append(msgOptions, slack.MsgOptionUsername(n.opts.Username))
@@ -82,6 +82,11 @@ func (n *slackNotifier) Send(notification Notification, recipient string) error 
 
 	_, _, err := s.PostMessageContext(context.TODO(), recipient, msgOptions...)
 	return err
+}
+
+// GetSigningSecret exposes signing secret for slack bot
+func (n *slackNotifier) GetSigningSecret() string {
+	return n.opts.SigningSecret
 }
 
 func isValidIconURL(iconURL string) bool {
